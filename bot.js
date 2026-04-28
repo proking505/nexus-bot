@@ -1,5 +1,5 @@
-const { Client, GatewayIntentBits, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
-
+const http = require('http');
+http.createServer((req, res) => res.end('Nexus Bot is online!')).listen(process.env.PORT || 3000);
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
