@@ -115,25 +115,38 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .nuke ────────────────────────────────────────────────────────────────────
-  if (command === 'nuke') {
+ if (command === 'nuke') {
     if (!isStaff(member)) return message.reply('❌ You need the Staff role to use this command.');
-    const channel = message.channel;
-    try {
-      const newChannel = await channel.clone();
-      await channel.delete();
-      const embed = new EmbedBuilder()
-        .setTitle('💥 Channel Nuked')
-        .setDescription('This channel has been nuked by staff.')
-        .setImage('https://media.giphy.com/media/HhTXt43pk1I1W/giphy.gif')
-        .setColor(0xFF0000);
-      await newChannel.send({ embeds: [embed] });
-    } catch (e) {
-      console.error(e);
-      message.reply('❌ Failed to nuke channel. Check my permissions.');
-    }
+    const embed = new EmbedBuilder()
+      .setTitle('⚠️ Are you sure?')
+      .setDescription('You are about to **nuke** this channel!\nType `.confirm` to confirm or `.cancel` to cancel.')
+      .setColor(0xFF0000);
+    await message.reply({ embeds: [embed] });
+    const filter = m => m.author.id === message.author.id && ['.confirm', '.cancel'].includes(m.content.toLowerCase());
+    const collector = message.channel.createMessageCollector({ filter, time: 15000, max: 1 });
+    collector.on('collect', async m => {
+      if (m.content.toLowerCase() === '.confirm') {
+        try {
+          const newChannel = await message.channel.clone();
+          await message.channel.delete();
+          const nukeEmbed = new EmbedBuilder()
+            .setTitle('💥 Channel Nuked')
+            .setDescription('This channel has been nuked by staff.')
+            .setImage('https://media.giphy.com/media/HhTXt43pk1I1W/giphy.gif')
+            .setColor(0xFF0000);
+          await newChannel.send({ embeds: [nukeEmbed] });
+        } catch (e) {
+          console.error(e);
+        }
+      } else {
+        m.reply('✅ Nuke cancelled!');
+      }
+    });
+    collector.on('end', collected => {
+      if (collected.size === 0) message.channel.send('⏰ Nuke cancelled — no response in time.').catch(() => {});
+    });
     return;
   }
-
   // ── .revive ───────────────────────────────────────────────────────────────────
   if (command === 'revive') {
     if (!isStaff(member)) return message.reply('❌ You need the Staff role to use this command.');
