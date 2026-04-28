@@ -1,0 +1,17 @@
+{
+  "name": "thepl-discord-bot",
+  "version": "2.0.0",
+  "description": "Full-featured Discord bot for ThePL server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  }
+}
