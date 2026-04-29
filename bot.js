@@ -99,8 +99,14 @@ client.on('presenceUpdate', async (oldPresence, newPresence) => {
     );
     if (hasVanity && !member.roles.cache.has(reppedRole.id)) {
       await member.roles.add(reppedRole);
-      const chan = guild.systemChannel;
-      if (chan) chan.send(`💠 ${member} has been given the **${REPPED_ROLE_NAME}** role for repping the server!`);
+      const perksChannel = guild.channels.cache.find(c => c.name.includes('extra-perks'));
+      const logChan = perksChannel || guild.systemChannel;
+      if (logChan) logChan.send({ embeds: [new EmbedBuilder()
+        .setTitle('💠 New Repped Member!')
+        .setDescription(`${member} has been given the **${REPPED_ROLE_NAME}** role for repping the server!`)
+        .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
+        .setColor(0x00BFFF)
+        .setTimestamp()]});
     } else if (!hasVanity && member.roles.cache.has(reppedRole.id)) {
       await member.roles.remove(reppedRole);
     }
