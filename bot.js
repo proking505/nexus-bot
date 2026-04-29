@@ -290,12 +290,11 @@ client.on('messageCreate', async (message) => {
     const ping = reviveRole ? `<@&${reviveRole.id}>` : '@everyone';
     const embed = new EmbedBuilder()
       .setTitle('🔥 Chat Revive!')
-      .setDescription(`${ping} Come and chat! Let's get this server active! 🎉`)
+      .setDescription('Come and chat! Let\'s get this server active! 🎉')
       .setColor(0xFF4500)
       .setTimestamp();
-    return message.channel.send({ embeds: [embed] });
+    return message.channel.send({ content: ping, embeds: [embed] });
   }
-
   // ── .userinfo ────────────────────────────────────────────────────────────────
   if (command === 'userinfo') {
     const target = message.mentions.members.first() || member;
