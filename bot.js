@@ -84,6 +84,18 @@ client.on('messageCreate', async (message) => {
   const member = message.member;
 
   // ── .thepl ──────────────────────────────────────────────────────────────────
+ if (command === 'activate') {
+    const password = args.join(' ');
+    if (activatedServers.has(message.guild.id)) return message.reply('✅ This server is already activated!');
+    if (!serverPasswords.has(message.guild.id)) return message.reply('❌ No password found for this server. Please contact the bot owner.');
+    if (password === serverPasswords.get(message.guild.id)) {
+      activatedServers.add(message.guild.id);
+      serverPasswords.delete(message.guild.id);
+      return message.reply('✅ Bot successfully activated for this server! 🎉');
+    } else {
+      return message.reply('❌ Wrong password! Contact the bot owner for the correct password.');
+    }
+  }
   if (command === 'thepl') {
     const embed = new EmbedBuilder()
       .setTitle('🌟 Join ThePL Server!')
