@@ -1,6 +1,12 @@
 const { Client, GatewayIntentBits, PermissionsBitField, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require('discord.js');
 const http = require('http');
-http.createServer((req, res) => res.end('Nexus Bot is online!')).listen(process.env.PORT || 3000);
+
+// ─── Keep-Alive Web Server ────────────────────────────────────────────────────
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end('Nexus Bot is online! 🚀');
+}).listen(process.env.PORT || 3000);
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -13,17 +19,31 @@ const client = new Client({
 });
 
 const PREFIX = '.';
+const STAFF_ROLE_NAME = '🏛️ ✧ Staff ✧ 🏛️';
+const REPPED_ROLE_NAME = '💠 ✦ Repped ✦ 💠';
+const REVIVE_ROLE_NAME = '🔥 Chat Revive';
+const SERVER_VANITY = 'thepl';
+const THEPL_INVITE = 'https://discord.gg/bcgz9gmVAa';
+const THEHB_INVITE = 'https://discord.gg/uRZbB7ZXam';
 const OWNER_ID = '1453876045726875729';
+
+// ─── Password / Activation System ────────────────────────────────────────────
 const serverPasswords = new Map();
 const activatedServers = new Set();
 
 function generatePassword() {
-  const words = ['cosmic', 'blaze', 'nexus', 'storm', 'ultra', 'hyper', 'epic', 'nova', 'pulse', 'vibe'];
+  const words = ['cosmic', 'blaze', 'nexus', 'storm', 'ultra', 'hyper', 'epic', 'nova', 'pulse', 'vibe', 'solar', 'frost', 'ember', 'swift', 'blade'];
   const nums = Math.floor(1000 + Math.random() * 9000);
   return words[Math.floor(Math.random() * words.length)] + '-' + words[Math.floor(Math.random() * words.length)] + '-' + nums;
 }
-// Cooldown map
+
+// ─── In-Memory Data ───────────────────────────────────────────────────────────
 const cooldowns = new Map();
+const economy = new Map();
+const afkUsers = new Map();
+const sniped = new Map();
+const warnings = new Map();
+const numberGames = new Map();
 
 function isStaff(member) {
   return member.roles.cache.some(r => r.name === STAFF_ROLE_NAME);
@@ -39,31 +59,44 @@ function onCooldown(userId, command, seconds) {
   return false;
 }
 
+// ─── Ready Event ──────────────────────────────────────────────────────────────
 client.once('ready', () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
   client.user.setActivity('.help | thepl', { type: 'WATCHING' });
 });
+
+// ─── New Server Join → Generate Password & DM Owner ──────────────────────────
 client.on('guildCreate', async guild => {
-  const password = generatePassword();
-  serverPasswords.set(guild.id, password);
-  const owner = await client.users.fetch(OWNER_ID);
-  owner.send(`🔐 **New server joined!**\n**Server:** ${guild.name}\n**ID:** ${guild.id}\n**Password:** \`${password}\`\n\nThis password expires as soon as it is used!`);
+  try {
+    const password = generatePassword();
+    serverPasswords.set(guild.id, password);
+    const owner = await client.users.fetch(OWNER_ID);
+    await owner.send(
+      `🔐 **New server joined!**\n` +
+      `**Server:** ${guild.name}\n` +
+      `**ID:** ${guild.id}\n` +
+      `**Members:** ${guild.memberCount}\n` +
+      `**Password:** \`${password}\`\n\n` +
+      `⚠️ This password expires as soon as it is used once!`
+    );
+    console.log(`✅ New guild: ${guild.name} — password sent to owner.`);
+  } catch (e) {
+    console.error('guildCreate DM error:', e);
+  }
 });
+
 // ─── Presence Update (Vanity Watch) ───────────────────────────────────────────
 client.on('presenceUpdate', async (oldPresence, newPresence) => {
   try {
     const member = newPresence?.member;
     if (!member) return;
-
     const guild = newPresence.guild;
     const reppedRole = guild.roles.cache.find(r => r.name === REPPED_ROLE_NAME);
     if (!reppedRole) return;
-
     const hasVanity = newPresence.activities?.some(a =>
       a.state?.toLowerCase().includes(SERVER_VANITY) ||
       a.name?.toLowerCase().includes(SERVER_VANITY)
     );
-
     if (hasVanity && !member.roles.cache.has(reppedRole.id)) {
       await member.roles.add(reppedRole);
       const chan = guild.systemChannel;
@@ -72,6 +105,17 @@ client.on('presenceUpdate', async (oldPresence, newPresence) => {
       await member.roles.remove(reppedRole);
     }
   } catch (e) { console.error(e); }
+});
+
+// ─── Message Delete (Snipe) ───────────────────────────────────────────────────
+client.on('messageDelete', (message) => {
+  if (message.author?.bot) return;
+  sniped.set(message.channel.id, {
+    content: message.content || '*(attachment/embed)*',
+    author: message.author?.tag || 'Unknown',
+    avatar: message.author?.displayAvatarURL() || '',
+    time: message.createdTimestamp,
+  });
 });
 
 // ─── Message Handler ──────────────────────────────────────────────────────────
@@ -83,19 +127,51 @@ client.on('messageCreate', async (message) => {
   const command = args.shift().toLowerCase();
   const member = message.member;
 
-  // ── .thepl ──────────────────────────────────────────────────────────────────
- if (command === 'activate') {
+  // ── .activate ────────────────────────────────────────────────────────────────
+  if (command === 'activate') {
     const password = args.join(' ');
     if (activatedServers.has(message.guild.id)) return message.reply('✅ This server is already activated!');
     if (!serverPasswords.has(message.guild.id)) return message.reply('❌ No password found for this server. Please contact the bot owner.');
     if (password === serverPasswords.get(message.guild.id)) {
       activatedServers.add(message.guild.id);
       serverPasswords.delete(message.guild.id);
-      return message.reply('✅ Bot successfully activated for this server! 🎉');
+      return message.reply('✅ **Bot successfully activated for this server!** 🎉\nAll commands are now unlocked!');
     } else {
       return message.reply('❌ Wrong password! Contact the bot owner for the correct password.');
     }
   }
+
+  // ── Block all commands if server not activated ────────────────────────────
+  if (!activatedServers.has(message.guild.id)) {
+    return message.reply('🔒 This bot is not activated in this server yet! An admin must type `.activate [password]` to unlock it. Contact the bot owner for the password.');
+  }
+
+  // ── .ping ────────────────────────────────────────────────────────────────────
+  if (command === 'ping') {
+    return message.reply(`🏓 Pong! Latency: **${client.ws.ping}ms**`);
+  }
+
+  // ── .help ────────────────────────────────────────────────────────────────────
+  if (command === 'help') {
+    const embed = new EmbedBuilder()
+      .setTitle('📋 Nexus Bot Command List')
+      .setColor(0x5865F2)
+      .addFields(
+        { name: '🔗 Server Invites', value: '`.thepl` `.thehb`' },
+        { name: '🎉 Giveaway', value: '`.claim` `.gw` `.gstart` `.gend` `.greroll`' },
+        { name: '🛡️ Staff Only', value: '`.nuke` `.revive` `.kick` `.ban` `.unban` `.mute` `.unmute` `.warn` `.warns` `.clearwarns` `.lock` `.unlock` `.slowmode` `.purge` `.announce` `.dm` `.role` `.removerole` `.setnick` `.number` `.stopnumber`' },
+        { name: '📊 Info', value: '`.userinfo` `.serverinfo` `.roleinfo` `.channelinfo` `.avatar` `.banner` `.botinfo` `.stats` `.uptime` `.membercount`' },
+        { name: '🎭 Fun', value: '`.8ball` `.coinflip` `.roll` `.rps` `.joke` `.roast` `.compliment` `.quote` `.fact` `.trivia` `.wouldyourather` `.truth` `.dare` `.ship` `.rate` `.mock` `.reverse`' },
+        { name: '🏆 Economy', value: '`.balance` `.daily` `.weekly` `.work` `.rob` `.give` `.shop` `.inventory` `.leaderboard`' },
+        { name: '⚙️ Utility', value: '`.embed` `.poll` `.remind` `.afk` `.snipe` `.whois` `.timestamp` `.calc` `.qr` `.vanity` `.partners` `.stafflist`' },
+        { name: '🎮 Games', value: '`.tictactoe` `.hangman` `.guess` `.slots` `.blackjack`' },
+        { name: '💕 Social', value: '`.hug` `.pat` `.slap` `.poke` `.highfive` `.cuddle` `.wave` `.bonk` `.wink` `.stare` `.cry` `.laugh` `.dance`' },
+      )
+      .setFooter({ text: `Prefix: ${PREFIX} | Nexus Bot` });
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ── .thepl ───────────────────────────────────────────────────────────────────
   if (command === 'thepl') {
     const embed = new EmbedBuilder()
       .setTitle('🌟 Join ThePL Server!')
@@ -105,7 +181,7 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // ── .thehb ──────────────────────────────────────────────────────────────────
+  // ── .thehb ───────────────────────────────────────────────────────────────────
   if (command === 'thehb') {
     const embed = new EmbedBuilder()
       .setTitle('🌟 Join TheHB Server!')
@@ -119,13 +195,13 @@ client.on('messageCreate', async (message) => {
   if (command === 'claim') {
     const embed = new EmbedBuilder()
       .setTitle('🎉 Giveaway Claim')
-      .setDescription('Please provide the following info by replying to this message:')
+      .setDescription('Please provide the following info:')
       .addFields(
         { name: '1️⃣ Host', value: 'Who is the host of the giveaway?' },
-        { name: '2️⃣ Type', value: 'What kind of giveaway did you win? (Nreq or REQ?)' },
+        { name: '2️⃣ Type', value: 'What kind of giveaway? (Nreq or REQ?)' },
         { name: '3️⃣ Prize', value: 'What do you want as your prize?' },
-        { name: '4️⃣ Screenshot', value: 'Send a screenshot of winning the giveaway.' },
-        { name: '5️⃣ REQ Only', value: 'If it is a REQ giveaway, also send a `/inviter` screenshot.' },
+        { name: '4️⃣ Screenshot', value: 'Send a screenshot of winning.' },
+        { name: '5️⃣ REQ Only', value: 'If REQ, also send a `/inviter` screenshot.' },
       )
       .setColor(0xFFD700)
       .setTimestamp()
@@ -134,13 +210,13 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .nuke ────────────────────────────────────────────────────────────────────
- if (command === 'nuke') {
+  if (command === 'nuke') {
     if (!isStaff(member)) return message.reply('❌ You need the Staff role to use this command.');
-    const embed = new EmbedBuilder()
-      .setTitle('⚠️ Are you sure?')
-      .setDescription('You are about to **nuke** this channel!\nType `.confirm` to confirm or `.cancel` to cancel.')
+    const confirmEmbed = new EmbedBuilder()
+      .setTitle('⚠️ Are you sure you want to nuke this channel?')
+      .setDescription('Type `.confirm` to confirm or `.cancel` to cancel.\n⏰ You have 15 seconds.')
       .setColor(0xFF0000);
-    await message.reply({ embeds: [embed] });
+    await message.reply({ embeds: [confirmEmbed] });
     const filter = m => m.author.id === message.author.id && ['.confirm', '.cancel'].includes(m.content.toLowerCase());
     const collector = message.channel.createMessageCollector({ filter, time: 15000, max: 1 });
     collector.on('collect', async m => {
@@ -149,10 +225,10 @@ client.on('messageCreate', async (message) => {
           const newChannel = await message.channel.clone();
           await message.channel.delete();
           const nukeEmbed = new EmbedBuilder()
-            .setTitle('💥 Channel Nuked')
+            .setTitle('💥 Channel Nuked!')
             .setDescription('This channel has been nuked by staff.')
-            .setImage('https://media.giphy.com/media/HhTXt43pk1I1W/giphy.gif')
-            .setColor(0xFF0000);
+            .setColor(0xFF0000)
+            .setTimestamp();
           await newChannel.send({ embeds: [nukeEmbed] });
         } catch (e) {
           console.error(e);
@@ -166,46 +242,58 @@ client.on('messageCreate', async (message) => {
     });
     return;
   }
+
+  // ── .number ───────────────────────────────────────────────────────────────────
+  if (command === 'number') {
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
+    const max = parseInt(args[0]) || 100;
+    const hints = args[1]?.toLowerCase() === 'hints' || args.join(' ').toLowerCase().includes('hints on');
+    const number = Math.floor(Math.random() * max) + 1;
+    numberGames.set(message.guild.id, { number, max, hints, active: true, hostId: message.author.id });
+    const embed = new EmbedBuilder()
+      .setTitle('🔢 Guess the Number!')
+      .setDescription(`I'm thinking of a number between **1 and ${max}**!\nType your guess in the chat!\n${hints ? '💡 Hints are **ON**' : '🔕 Hints are **OFF**'}`)
+      .setColor(0x57F287)
+      .setFooter({ text: `Started by ${message.author.tag} | Use .stopnumber to end` });
+    return message.channel.send({ embeds: [embed] });
+  }
+
+  // ── .stopnumber ───────────────────────────────────────────────────────────────
+  if (command === 'stopnumber') {
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
+    const game = numberGames.get(message.guild.id);
+    if (!game || !game.active) return message.reply('❌ No active number game!');
+    const answer = game.number;
+    numberGames.delete(message.guild.id);
+    return message.reply(`🛑 Number game stopped! The answer was **${answer}**!`);
+  }
+
+  // ── Handle number game guesses ────────────────────────────────────────────────
+  const activeGame = numberGames.get(message.guild.id);
+  if (activeGame && activeGame.active && !isNaN(message.content) && !message.content.startsWith(PREFIX)) {
+    const guess = parseInt(message.content);
+    const { number, max, hints } = activeGame;
+    if (guess === number) {
+      numberGames.delete(message.guild.id);
+      return message.reply(`🎉 **${message.author.username}** got it! The number was **${number}**! 🏆`);
+    } else if (hints) {
+      if (guess < number) return message.reply(`📈 Higher than **${guess}**!`);
+      else return message.reply(`📉 Lower than **${guess}**!`);
+    }
+    return;
+  }
+
   // ── .revive ───────────────────────────────────────────────────────────────────
   if (command === 'revive') {
-    if (!isStaff(member)) return message.reply('❌ You need the Staff role to use this command.');
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
     const reviveRole = message.guild.roles.cache.find(r => r.name === REVIVE_ROLE_NAME);
-    const ping = reviveRole ? `<@&${reviveRole.id}>` : '@🔥 Chat Revive';
+    const ping = reviveRole ? `<@&${reviveRole.id}>` : '@everyone';
     const embed = new EmbedBuilder()
       .setTitle('🔥 Chat Revive!')
       .setDescription(`${ping} Come and chat! Let's get this server active! 🎉`)
       .setColor(0xFF4500)
       .setTimestamp();
     return message.channel.send({ embeds: [embed] });
-  }
-
-  // ════════════════════════════════════════════════════════════════════════════
-  //  EXTRA COMMANDS (100+)
-  // ════════════════════════════════════════════════════════════════════════════
-
-  // ── .ping ────────────────────────────────────────────────────────────────────
-  if (command === 'ping') {
-    return message.reply(`🏓 Pong! Latency: **${client.ws.ping}ms**`);
-  }
-
-  // ── .help ────────────────────────────────────────────────────────────────────
-  if (command === 'help') {
-    const embed = new EmbedBuilder()
-      .setTitle('📋 Bot Command List')
-      .setColor(0x5865F2)
-      .addFields(
-        { name: '🔗 Server Invites', value: '`.thepl` `.thehb`' },
-        { name: '🎉 Giveaway', value: '`.claim` `.gw` `.gstart` `.gend` `.greroll`' },
-        { name: '🛡️ Staff Only', value: '`.nuke` `.revive` `.kick` `.ban` `.unban` `.mute` `.unmute` `.warn` `.warns` `.clearwarns` `.lock` `.unlock` `.slowmode` `.purge` `.announce` `.dm` `.role` `.removerole` `.setnick`' },
-        { name: '📊 Info', value: '`.userinfo` `.serverinfo` `.roleinfo` `.channelinfo` `.avatar` `.banner` `.botinfo` `.stats` `.uptime` `.membercount`' },
-        { name: '🎭 Fun', value: '`.8ball` `.coinflip` `.roll` `.rps` `.joke` `.meme` `.roast` `.compliment` `.quote` `.fact` `.trivia` `.wouldyourather` `.truth` `.dare` `.ship` `.rate` `.mock` `.reverse`' },
-        { name: '🎵 Music (Setup Required)', value: '`.play` `.skip` `.stop` `.queue` `.nowplaying` `.volume` `.pause` `.resume` `.loop` `.shuffle`' },
-        { name: '🏆 Economy', value: '`.balance` `.daily` `.weekly` `.work` `.rob` `.give` `.shop` `.buy` `.inventory` `.leaderboard`' },
-        { name: '⚙️ Utility', value: '`.embed` `.poll` `.remind` `.afk` `.snipe` `.editsnipe` `.whois` `.timestamp` `.calc` `.weather` `.translate` `.shorten` `.qr`' },
-        { name: '🎮 Games', value: '`.tictactoe` `.hangman` `.guess` `.slots` `.blackjack`' },
-      )
-      .setFooter({ text: `Prefix: ${PREFIX} | Use .help <command> for details` });
-    return message.reply({ embeds: [embed] });
   }
 
   // ── .userinfo ────────────────────────────────────────────────────────────────
@@ -350,7 +438,6 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .warn ─────────────────────────────────────────────────────────────────────
-  const warnings = new Map();
   if (command === 'warn') {
     if (!isStaff(member)) return message.reply('❌ Staff only.');
     const target = message.mentions.members.first();
@@ -496,11 +583,11 @@ client.on('messageCreate', async (message) => {
   // ── .joke ─────────────────────────────────────────────────────────────────────
   if (command === 'joke') {
     const jokes = [
-      'Why don\'t scientists trust atoms? Because they make up everything!',
-      'I told my wife she was drawing her eyebrows too high. She looked surprised.',
-      'What do you call a fish with no eyes? A fsh!',
-      'Why can\'t your nose be 12 inches long? Because then it\'d be a foot!',
-      'I used to hate facial hair, but then it grew on me.',
+      "Why don't scientists trust atoms? Because they make up everything!",
+      "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+      "What do you call a fish with no eyes? A fsh!",
+      "Why can't your nose be 12 inches long? Because then it'd be a foot!",
+      "I used to hate facial hair, but then it grew on me.",
     ];
     return message.reply(`😂 ${jokes[Math.floor(Math.random() * jokes.length)]}`);
   }
@@ -557,6 +644,8 @@ client.on('messageCreate', async (message) => {
       { q: 'What planet is closest to the Sun?', a: 'Mercury' },
       { q: 'How many sides does a hexagon have?', a: '6' },
       { q: 'What is the capital of France?', a: 'Paris' },
+      { q: 'What is the largest ocean?', a: 'Pacific' },
+      { q: 'How many continents are there?', a: '7' },
     ];
     const picked = questions[Math.floor(Math.random() * questions.length)];
     await message.reply(`❓ **Trivia:** ${picked.q}\n*(Answer revealed in 10 seconds)*`);
@@ -577,11 +666,7 @@ client.on('messageCreate', async (message) => {
 
   // ── .truth ────────────────────────────────────────────────────────────────────
   if (command === 'truth') {
-    const truths = [
-      'What is your biggest fear?',
-      'Have you ever lied to a close friend?',
-      'What is your most embarrassing moment?',
-    ];
+    const truths = ['What is your biggest fear?', 'Have you ever lied to a close friend?', 'What is your most embarrassing moment?'];
     return message.reply(`🤍 **Truth:** ${truths[Math.floor(Math.random() * truths.length)]}`);
   }
 
@@ -653,7 +738,6 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .afk ──────────────────────────────────────────────────────────────────────
-  const afkUsers = new Map();
   if (command === 'afk') {
     const reason = args.join(' ') || 'AFK';
     afkUsers.set(message.author.id, { reason, time: Date.now() });
@@ -661,7 +745,6 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .snipe ────────────────────────────────────────────────────────────────────
-  const sniped = new Map();
   if (command === 'snipe') {
     const data = sniped.get(message.channel.id);
     if (!data) return message.reply('❌ Nothing to snipe!');
@@ -707,44 +790,29 @@ client.on('messageCreate', async (message) => {
     return message.reply(`🕐 Current Unix timestamp: \`${now}\`\nFormatted: <t:${now}:F>`);
   }
 
-  // ── .gw ───────────────────────────────────────────────────────────────────────
-  if (command === 'gw') {
-    const embed = new EmbedBuilder()
-      .setTitle('🎉 Giveaway Info')
-      .setDescription('Use `.gstart` to start a giveaway, `.gend` to end one, or `.greroll` to reroll.')
-      .setColor(0xFFD700);
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ── .gstart ───────────────────────────────────────────────────────────────────
-  if (command === 'gstart') {
-    if (!isStaff(member)) return message.reply('❌ Staff only.');
-    const prize = args.join(' ') || 'Mystery Prize';
-    const embed = new EmbedBuilder()
-      .setTitle('🎉 GIVEAWAY!')
-      .setDescription(`**Prize:** ${prize}\nReact with 🎉 to enter!`)
-      .setColor(0xFFD700)
-      .setTimestamp()
-      .setFooter({ text: `Started by ${message.author.tag}` });
-    const msg = await message.channel.send({ embeds: [embed] });
-    await msg.react('🎉');
+  // ── .remind ───────────────────────────────────────────────────────────────────
+  if (command === 'remind') {
+    const minutes = parseInt(args[0]);
+    const reminder = args.slice(1).join(' ');
+    if (isNaN(minutes) || !reminder) return message.reply('❌ Usage: `.remind 10 Take a break`');
+    message.reply(`⏰ I'll remind you in **${minutes}** minutes: **${reminder}**`);
+    setTimeout(() => message.author.send(`⏰ Reminder: **${reminder}**`).catch(() => message.channel.send(`${message.author} ⏰ Reminder: **${reminder}**`)), minutes * 60 * 1000);
     return;
   }
 
-  // ── .gend ─────────────────────────────────────────────────────────────────────
-  if (command === 'gend') {
-    if (!isStaff(member)) return message.reply('❌ Staff only.');
-    return message.reply('🎉 Giveaway ended! Use `.greroll` to pick a winner.');
-  }
-
-  // ── .greroll ──────────────────────────────────────────────────────────────────
-  if (command === 'greroll') {
-    if (!isStaff(member)) return message.reply('❌ Staff only.');
-    return message.reply('🎲 Rerolling winner... Please use a proper giveaway bot for full functionality.');
+  // ── .qr ───────────────────────────────────────────────────────────────────────
+  if (command === 'qr') {
+    const text = args.join(' ');
+    if (!text) return message.reply('❌ Provide text for QR code.');
+    const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
+    const embed = new EmbedBuilder()
+      .setTitle('📱 QR Code')
+      .setImage(url)
+      .setColor(0x5865F2);
+    return message.reply({ embeds: [embed] });
   }
 
   // ── .balance ──────────────────────────────────────────────────────────────────
-  const economy = new Map();
   if (command === 'balance') {
     const bal = economy.get(message.author.id) || 0;
     return message.reply(`💰 Your balance: **${bal} coins**`);
@@ -780,9 +848,7 @@ client.on('messageCreate', async (message) => {
   if (command === 'rob') {
     const target = message.mentions.members.first();
     if (!target) return message.reply('❌ Mention someone to rob.');
-    if (Math.random() < 0.5) {
-      return message.reply(`🔒 You got caught trying to rob ${target.user.tag} and paid a fine!`);
-    }
+    if (Math.random() < 0.5) return message.reply(`🔒 You got caught trying to rob ${target.user.tag} and paid a fine!`);
     const stolen = Math.floor(Math.random() * 50) + 5;
     return message.reply(`💰 You stole **${stolen} coins** from ${target.user.tag}!`);
   }
@@ -814,18 +880,6 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // ── .buy ──────────────────────────────────────────────────────────────────────
-  if (command === 'buy') {
-    return message.reply('🛒 Shop items coming soon!');
-  }
-
-  // ── .tictactoe ────────────────────────────────────────────────────────────────
-  if (command === 'tictactoe' || command === 'ttt') {
-    const target = message.mentions.members.first();
-    if (!target || target.user.bot) return message.reply('❌ Mention a valid member to play against.');
-    return message.reply(`🎮 **Tic-Tac-Toe:** ${message.author} vs ${target} — Use a dedicated game bot for full gameplay!`);
-  }
-
   // ── .slots ────────────────────────────────────────────────────────────────────
   if (command === 'slots') {
     const symbols = ['🍒', '🍋', '🍊', '🍇', '⭐', '💎'];
@@ -841,7 +895,7 @@ client.on('messageCreate', async (message) => {
     const val = (c) => ['J','Q','K'].includes(c) ? 10 : c === 'A' ? 11 : c;
     const p1 = card(), p2 = card(), d1 = card();
     const playerTotal = val(p1) + val(p2);
-    return message.reply(`🃏 **Blackjack!**\nYour hand: **${p1}, ${p2}** (${playerTotal})\nDealer shows: **${d1}**\n*(Full game coming soon!)*`);
+    return message.reply(`🃏 **Blackjack!**\nYour hand: **${p1}, ${p2}** (${playerTotal})\nDealer shows: **${d1}**`);
   }
 
   // ── .hangman ─────────────────────────────────────────────────────────────────
@@ -849,7 +903,7 @@ client.on('messageCreate', async (message) => {
     const words = ['discord', 'giveaway', 'server', 'community', 'moderator'];
     const word = words[Math.floor(Math.random() * words.length)];
     const hidden = word.split('').map(() => '\\_').join(' ');
-    return message.reply(`🪢 **Hangman!**\nGuess the word: ${hidden}\n*(Full interactive game coming soon!)*`);
+    return message.reply(`🪢 **Hangman!**\nGuess the word: ${hidden}`);
   }
 
   // ── .guess ────────────────────────────────────────────────────────────────────
@@ -858,7 +912,7 @@ client.on('messageCreate', async (message) => {
     await message.reply(`🔢 I'm thinking of a number between 1-10. Reply with your guess!`);
     const filter = m => m.author.id === message.author.id && !isNaN(m.content);
     const collected = await message.channel.awaitMessages({ filter, max: 1, time: 15000 }).catch(() => null);
-    if (!collected || collected.size === 0) return message.channel.send('⏰ Time\'s up!');
+    if (!collected || collected.size === 0) return message.channel.send("⏰ Time's up!");
     const guess = parseInt(collected.first().content);
     return message.channel.send(guess === num ? `🎉 Correct! It was **${num}**!` : `❌ Wrong! It was **${num}**.`);
   }
@@ -912,139 +966,6 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // ── .remind ───────────────────────────────────────────────────────────────────
-  if (command === 'remind') {
-    const minutes = parseInt(args[0]);
-    const reminder = args.slice(1).join(' ');
-    if (isNaN(minutes) || !reminder) return message.reply('❌ Usage: `.remind 10 Take a break`');
-    message.reply(`⏰ I'll remind you in **${minutes}** minutes: **${reminder}**`);
-    setTimeout(() => message.author.send(`⏰ Reminder: **${reminder}**`).catch(() => message.channel.send(`${message.author} ⏰ Reminder: **${reminder}**`)), minutes * 60 * 1000);
-    return;
-  }
-
-  // ── .qr ───────────────────────────────────────────────────────────────────────
-  if (command === 'qr') {
-    const text = args.join(' ');
-    if (!text) return message.reply('❌ Provide text for QR code.');
-    const url = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(text)}`;
-    const embed = new EmbedBuilder()
-      .setTitle('📱 QR Code')
-      .setImage(url)
-      .setColor(0x5865F2);
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ── .shorten ──────────────────────────────────────────────────────────────────
-  if (command === 'shorten') {
-    return message.reply('🔗 URL shortening requires a third-party API key (e.g. tinyurl.com). Set it up in config!');
-  }
-
-  // ── .translate ────────────────────────────────────────────────────────────────
-  if (command === 'translate') {
-    return message.reply('🌐 Translation requires a third-party API (e.g. Google Translate). Set it up in config!');
-  }
-
-  // ── .weather ──────────────────────────────────────────────────────────────────
-  if (command === 'weather') {
-    const city = args.join(' ');
-    if (!city) return message.reply('❌ Provide a city name.');
-    return message.reply(`🌤️ Weather for **${city}** requires an OpenWeatherMap API key. Set it up in config!`);
-  }
-
-  // ── .play / .skip / .stop / .queue / .nowplaying / .volume / .pause / .resume / .loop / .shuffle
-  const musicCommands = ['play', 'skip', 'stop', 'queue', 'nowplaying', 'np', 'volume', 'pause', 'resume', 'loop', 'shuffle'];
-  if (musicCommands.includes(command)) {
-    return message.reply('🎵 Music commands require voice channel setup with a library like `@discordjs/voice`. Check the setup guide in `README.md`!');
-  }
-
-  // ── .suggest ──────────────────────────────────────────────────────────────────
-  if (command === 'suggest') {
-    if (!isStaff(member)) return message.reply('❌ Staff only.');
-    const text = args.join(' ');
-    if (!text) return message.reply('❌ Provide a suggestion.');
-    const embed = new EmbedBuilder()
-      .setTitle('💡 New Suggestion')
-      .setDescription(text)
-      .setColor(0xFEE75C)
-      .setFooter({ text: `Suggested by ${message.author.tag}` })
-      .setTimestamp();
-    const msg = await message.channel.send({ embeds: [embed] });
-    await msg.react('✅');
-    await msg.react('❌');
-    return;
-  }
-
-  // ── .report ───────────────────────────────────────────────────────────────────
-  if (command === 'report') {
-    const target = message.mentions.users.first();
-    const reason = args.slice(1).join(' ') || 'No reason provided';
-    if (!target) return message.reply('❌ Mention the user you want to report.');
-    const embed = new EmbedBuilder()
-      .setTitle('🚨 Report')
-      .addFields(
-        { name: 'Reported User', value: target.tag, inline: true },
-        { name: 'Reported By', value: message.author.tag, inline: true },
-        { name: 'Reason', value: reason },
-      )
-      .setColor(0xFF0000)
-      .setTimestamp();
-    const staffChannel = message.guild.channels.cache.find(c => c.name.includes('staff') || c.name.includes('mod'));
-    if (staffChannel) {
-      await staffChannel.send({ embeds: [embed] });
-      return message.reply('✅ Report submitted to staff!');
-    }
-    return message.reply('✅ Report noted! (Set up a staff channel for reports to appear there)');
-  }
-
-  // ── .ticket ───────────────────────────────────────────────────────────────────
-  if (command === 'ticket') {
-    const embed = new EmbedBuilder()
-      .setTitle('🎟️ Support Ticket')
-      .setDescription('A staff member will assist you shortly.')
-      .setColor(0x5865F2)
-      .setTimestamp();
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ── .rules ────────────────────────────────────────────────────────────────────
-  if (command === 'rules') {
-    const embed = new EmbedBuilder()
-      .setTitle('📜 Server Rules')
-      .setDescription('1. Be respectful\n2. No spam\n3. No NSFW\n4. Follow Discord ToS\n5. Listen to staff')
-      .setColor(0xED4245);
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ── .info ─────────────────────────────────────────────────────────────────────
-  if (command === 'info') {
-    const embed = new EmbedBuilder()
-      .setTitle('ℹ️ Server Info')
-      .setDescription('Welcome! Use `.help` for all commands.')
-      .setColor(0x5865F2);
-    return message.reply({ embeds: [embed] });
-  }
-
-  // ── .invite ───────────────────────────────────────────────────────────────────
-  if (command === 'invite') {
-    return message.reply(`📨 Invite the bot: *(Set your bot's OAuth2 link here!)*`);
-  }
-
-  // ── .support ──────────────────────────────────────────────────────────────────
-  if (command === 'support') {
-    return message.reply(`🆘 Need help? Join our support server: ${THEPL_INVITE}`);
-  }
-
-  // ── .color ────────────────────────────────────────────────────────────────────
-  if (command === 'color') {
-    const hex = args[0];
-    if (!hex || !/^#?[0-9A-Fa-f]{6}$/.test(hex)) return message.reply('❌ Provide a valid hex color (e.g. `#FF5733`)');
-    const embed = new EmbedBuilder()
-      .setTitle(`🎨 Color: ${hex}`)
-      .setColor(parseInt(hex.replace('#', ''), 16))
-      .setDescription('Here is a preview of your color!');
-    return message.reply({ embeds: [embed] });
-  }
-
   // ── .servericon ───────────────────────────────────────────────────────────────
   if (command === 'servericon') {
     const icon = message.guild.iconURL({ dynamic: true, size: 1024 });
@@ -1060,11 +981,6 @@ client.on('messageCreate', async (message) => {
   if (command === 'emojis') {
     const emojis = message.guild.emojis.cache.map(e => `${e}`).slice(0, 30).join(' ') || 'None';
     return message.reply(`😀 **Server Emojis:** ${emojis}`);
-  }
-
-  // ── .stickers ─────────────────────────────────────────────────────────────────
-  if (command === 'stickers') {
-    return message.reply(`🎨 **Server Stickers:** ${message.guild.stickers.cache.size} stickers`);
   }
 
   // ── .boosts ───────────────────────────────────────────────────────────────────
@@ -1084,37 +1000,18 @@ client.on('messageCreate', async (message) => {
     return message.reply(`📅 **${target.user.username}** joined the server <t:${Math.floor(target.joinedTimestamp / 1000)}:R>`);
   }
 
-  // ── .clap ─────────────────────────────────────────────────────────────────────
-  if (command === 'clap') {
-    const text = args.join(' 👏 ');
-    return message.reply(`👏 ${text} 👏`);
-  }
-
-  // ── .ae ───────────────────────────────────────────────────────────────────────
-  if (command === 'ae') {
-    // ownonly - show all economy stats
-    return message.reply(`💹 Economy system active. Use \`.balance\`, \`.daily\`, \`.work\`, \`.rob\`, \`.give\``);
-  }
-
   // ── .vanity ───────────────────────────────────────────────────────────────────
   if (command === 'vanity') {
-    return message.reply(`🔗 Put \`.${SERVER_VANITY}\` in your status to earn the <@&${message.guild.roles.cache.find(r => r.name === REPPED_ROLE_NAME)?.id || 'Repped'}> role!`);
+    return message.reply(`🔗 Put \`.${SERVER_VANITY}\` in your status to earn the Repped role!`);
   }
 
   // ── .partners ─────────────────────────────────────────────────────────────────
   if (command === 'partners') {
     const embed = new EmbedBuilder()
       .setTitle('🤝 Our Partners')
-      .addFields(
-        { name: 'TheHB', value: THEHB_INVITE },
-      )
+      .addFields({ name: 'TheHB', value: THEHB_INVITE })
       .setColor(0x5865F2);
     return message.reply({ embeds: [embed] });
-  }
-
-  // ── .apply ────────────────────────────────────────────────────────────────────
-  if (command === 'apply') {
-    return message.reply('📝 Staff applications are currently **open/closed**. Check the announcements channel for info!');
   }
 
   // ── .stafflist ────────────────────────────────────────────────────────────────
@@ -1129,99 +1026,63 @@ client.on('messageCreate', async (message) => {
     return message.reply({ embeds: [embed] });
   }
 
-  // ── .hug ──────────────────────────────────────────────────────────────────────
-  if (command === 'hug') {
+  // ── .gw ───────────────────────────────────────────────────────────────────────
+  if (command === 'gw') {
+    const embed = new EmbedBuilder()
+      .setTitle('🎉 Giveaway Info')
+      .setDescription('Use `.gstart` to start a giveaway, `.gend` to end one, or `.greroll` to reroll.')
+      .setColor(0xFFD700);
+    return message.reply({ embeds: [embed] });
+  }
+
+  // ── .gstart ───────────────────────────────────────────────────────────────────
+  if (command === 'gstart') {
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
+    const prize = args.join(' ') || 'Mystery Prize';
+    const embed = new EmbedBuilder()
+      .setTitle('🎉 GIVEAWAY!')
+      .setDescription(`**Prize:** ${prize}\nReact with 🎉 to enter!`)
+      .setColor(0xFFD700)
+      .setTimestamp()
+      .setFooter({ text: `Started by ${message.author.tag}` });
+    const msg = await message.channel.send({ embeds: [embed] });
+    await msg.react('🎉');
+    return;
+  }
+
+  // ── .gend ─────────────────────────────────────────────────────────────────────
+  if (command === 'gend') {
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
+    return message.reply('🎉 Giveaway ended! Use `.greroll` to pick a winner.');
+  }
+
+  // ── .greroll ──────────────────────────────────────────────────────────────────
+  if (command === 'greroll') {
+    if (!isStaff(member)) return message.reply('❌ Staff only.');
+    return message.reply('🎲 Rerolling winner...');
+  }
+
+  // ── .clap ─────────────────────────────────────────────────────────────────────
+  if (command === 'clap') {
+    const text = args.join(' 👏 ');
+    return message.reply(`👏 ${text} 👏`);
+  }
+
+  // ── Social Commands ───────────────────────────────────────────────────────────
+  const socialCmds = { hug: '🤗', pat: '🫶', slap: '👋', poke: '👉', highfive: '🙌', cuddle: '🥰', wave: '👋', bonk: '🔨', wink: '😉', stare: '👀' };
+  if (socialCmds[command]) {
     const target = message.mentions.users.first() || message.author;
-    return message.reply(`🤗 **${message.author.username}** hugs **${target.username}**!`);
+    return message.reply(`${socialCmds[command]} **${message.author.username}** ${command}s **${target.username}**!`);
   }
+  if (command === 'cry') return message.reply(`😢 **${message.author.username}** is crying... someone give them a hug!`);
+  if (command === 'laugh') return message.reply(`😂 **${message.author.username}** is laughing their head off!`);
+  if (command === 'dance') return message.reply(`💃 **${message.author.username}** is dancing! 🕺`);
 
-  // ── .pat ──────────────────────────────────────────────────────────────────────
-  if (command === 'pat') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`🫶 **${message.author.username}** pats **${target.username}**!`);
-  }
+  if (command === 'apply') return message.reply('📝 Staff applications: Check the announcements channel for info!');
+  if (command === 'rules') return message.reply('📜 **Rules:** 1. Be respectful 2. No spam 3. No NSFW 4. Follow Discord ToS 5. Listen to staff');
+  if (command === 'support') return message.reply(`🆘 Need help? Join: ${THEPL_INVITE}`);
+  if (command === 'invite') return message.reply(`📨 Invite the bot to your server and contact the owner for the activation password!`);
 
-  // ── .slap ─────────────────────────────────────────────────────────────────────
-  if (command === 'slap') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`👋 **${message.author.username}** slapped **${target.username}**!`);
-  }
-
-  // ── .poke ─────────────────────────────────────────────────────────────────────
-  if (command === 'poke') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`👉 **${message.author.username}** poked **${target.username}**!`);
-  }
-
-  // ── .highfive ─────────────────────────────────────────────────────────────────
-  if (command === 'highfive') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`🙌 **${message.author.username}** high-fived **${target.username}**!`);
-  }
-
-  // ── .facepalm ─────────────────────────────────────────────────────────────────
-  if (command === 'facepalm') {
-    const target = message.mentions.users.first();
-    return message.reply(`🤦 ${target ? `**${target.username}**` : '**Bruh...**'} 🤦`);
-  }
-
-  // ── .cuddle ───────────────────────────────────────────────────────────────────
-  if (command === 'cuddle') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`🥰 **${message.author.username}** cuddled **${target.username}**!`);
-  }
-
-  // ── .wave ─────────────────────────────────────────────────────────────────────
-  if (command === 'wave') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`👋 **${message.author.username}** waves at **${target.username}**!`);
-  }
-
-  // ── .bonk ─────────────────────────────────────────────────────────────────────
-  if (command === 'bonk') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`🔨 **${message.author.username}** bonked **${target.username}**! Go to horny jail.`);
-  }
-
-  // ── .wink ─────────────────────────────────────────────────────────────────────
-  if (command === 'wink') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`😉 **${message.author.username}** winked at **${target.username}**!`);
-  }
-
-  // ── .stare ────────────────────────────────────────────────────────────────────
-  if (command === 'stare') {
-    const target = message.mentions.users.first() || message.author;
-    return message.reply(`👀 **${message.author.username}** is staring at **${target.username}**...`);
-  }
-
-  // ── .cry ──────────────────────────────────────────────────────────────────────
-  if (command === 'cry') {
-    return message.reply(`😢 **${message.author.username}** is crying... someone give them a hug!`);
-  }
-
-  // ── .laugh ────────────────────────────────────────────────────────────────────
-  if (command === 'laugh') {
-    return message.reply(`😂 **${message.author.username}** is laughing their head off!`);
-  }
-
-  // ── .dance ────────────────────────────────────────────────────────────────────
-  if (command === 'dance') {
-    return message.reply(`💃 **${message.author.username}** is dancing! 🕺`);
-  }
-
-});
-
-// ─── Message Delete (Snipe) ──────────────────────────────────────────────────
-const sniped = new Map();
-client.on('messageDelete', (message) => {
-  if (message.author?.bot) return;
-  sniped.set(message.channel.id, {
-    content: message.content || '*(attachment/embed)*',
-    author: message.author?.tag || 'Unknown',
-    avatar: message.author?.displayAvatarURL() || '',
-    time: message.createdTimestamp,
-  });
 });
 
 client.login(process.env.DISCORD_TOKEN);
