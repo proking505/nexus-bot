@@ -147,6 +147,15 @@ client.on('messageCreate', async (message) => {
   }
 
   // ── .ping ────────────────────────────────────────────────────────────────────
+ if (command === 'newpass') {
+    if (message.author.id !== OWNER_ID) return message.reply('❌ Only the bot owner can use this command.');
+    const password = generatePassword();
+    serverPasswords.set(message.guild.id, password);
+    activatedServers.delete(message.guild.id);
+    const owner = await client.users.fetch(OWNER_ID);
+    await owner.send(`🔐 **New password for ${message.guild.name}:**\n\`${password}\``);
+    return message.reply('✅ New password generated and sent to your DMs!');
+  }
   if (command === 'ping') {
     return message.reply(`🏓 Pong! Latency: **${client.ws.ping}ms**`);
   }
