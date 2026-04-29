@@ -13,13 +13,15 @@ const client = new Client({
 });
 
 const PREFIX = '.';
-const STAFF_ROLE_NAME = '🏛️ ✧ Staff ✧ 🏛️';
-const REPPED_ROLE_NAME = '💠 ✦ Repped ✦ 💠';
-const REVIVE_ROLE_NAME = '🔥 Chat Revive';
-const SERVER_VANITY = 'thepl'; // Change to your actual vanity URL
-const THEPL_INVITE = 'https://discord.gg/bcgz9gmVAa';
-const THEHB_INVITE = 'https://discord.gg/uRZbB7ZXam';
+const OWNER_ID = '1453876045726875729';
+const serverPasswords = new Map();
+const activatedServers = new Set();
 
+function generatePassword() {
+  const words = ['cosmic', 'blaze', 'nexus', 'storm', 'ultra', 'hyper', 'epic', 'nova', 'pulse', 'vibe'];
+  const nums = Math.floor(1000 + Math.random() * 9000);
+  return words[Math.floor(Math.random() * words.length)] + '-' + words[Math.floor(Math.random() * words.length)] + '-' + nums;
+}
 // Cooldown map
 const cooldowns = new Map();
 
