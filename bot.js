@@ -43,7 +43,12 @@ client.once('ready', () => {
   console.log(`✅ Bot online as ${client.user.tag}`);
   client.user.setActivity('.help | thepl', { type: 'WATCHING' });
 });
-
+client.on('guildCreate', async guild => {
+  const password = generatePassword();
+  serverPasswords.set(guild.id, password);
+  const owner = await client.users.fetch(OWNER_ID);
+  owner.send(`🔐 **New server joined!**\n**Server:** ${guild.name}\n**ID:** ${guild.id}\n**Password:** \`${password}\`\n\nThis password expires as soon as it is used!`);
+});
 // ─── Presence Update (Vanity Watch) ───────────────────────────────────────────
 client.on('presenceUpdate', async (oldPresence, newPresence) => {
   try {
